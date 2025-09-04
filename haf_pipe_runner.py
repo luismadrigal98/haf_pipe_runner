@@ -35,7 +35,6 @@ def extract_chromosome_name(bam_file):
         logger.error(f"Error reading BAM file {bam_file}: {e}")
     return None
 
-
 def find_bam_directories(base_path, pattern=None):
     """Find directories containing BAM files."""
     bam_directories = []
@@ -59,7 +58,6 @@ def find_bam_directories(base_path, pattern=None):
     
     return sorted(bam_directories)
 
-
 def get_bam_files_from_directories(directories):
     """Get all BAM files from multiple directories."""
     all_bam_files = []
@@ -68,7 +66,6 @@ def get_bam_files_from_directories(directories):
         all_bam_files.extend(bam_files)
         logger.info(f"Directory {directory}: {len(bam_files)} BAM files")
     return all_bam_files
-
 
 def run_haf_pipe_single(bam_file, args):
     """Run haf-pipe for a single BAM file."""
@@ -286,7 +283,6 @@ Examples:
     
     if failed and not args.continue_on_error:
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
