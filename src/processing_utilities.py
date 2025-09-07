@@ -99,7 +99,7 @@ def run_haf_pipe_single(bam_file, args):
     """Run haf-pipe for a single BAM file."""
     try:
         cmd = [
-            args.haf_wrapper,
+            'sh', args.haf_wrapper,
             '--input_vcf', args.input_vcf,
             '--bam_file', str(bam_file),
             '--SNP_table', args.SNP_table,
