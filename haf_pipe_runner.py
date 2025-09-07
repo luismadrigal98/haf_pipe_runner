@@ -138,8 +138,10 @@ Examples:
         
         if os.path.isdir(args.bam_file_or_dir):
             bam_files = [f for f in Path(args.bam_file_or_dir).glob('*.bam')]
+            logger.info(f"Found {len(bam_files)} BAM files in directory: {args.bam_file_or_dir}")
         else:
             bam_files = [Path(args.bam_file_or_dir)]
+            logger.info(f"Processing single BAM file: {args.bam_file_or_dir}")
             
     elif args.bam_directories:
         # Multiple explicit directories
