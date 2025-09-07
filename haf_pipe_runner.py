@@ -79,6 +79,8 @@ Examples:
     # Arguments specific to haf-pipe
     parser.add_argument('--reference_fasta', '-r', type=str, required=True, 
                        help='Path to the reference FASTA file.')
+    parser.add_argument('--chromosome', type=str, required=False,
+                       help='Manually specify target chromosome (e.g., Chr_01). If not provided, will auto-detect from BAM file paths.')
     parser.add_argument('--window_size', '-w', type=int, default=20, 
                        help='Window size in kb for haf-pipe. Default is 20.')
     parser.add_argument('--nsites', '-n', type=int, default=20, 
