@@ -62,6 +62,10 @@ Examples:
                        help='Name of the SNP table to be generated. Default is input VCF name with .SNP_table.txt suffix.')
     parser.add_argument('--haf_wrapper', type=str, required=True, 
                        help='Path to the bash haf-pipe wrapper.')
+    
+    # Output directory
+    parser.add_argument('--output_dir', '-o', type=str, default='haf_pipe_output', 
+                       help='Directory to store haf-pipe output files. Default is "haf_pipe_output".')
 
     # Arguments specific to haf-pipe
     parser.add_argument('--reference_fasta', '-r', type=str, required=True, 

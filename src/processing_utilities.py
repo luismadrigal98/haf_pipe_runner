@@ -105,7 +105,8 @@ def run_haf_pipe_single(bam_file, args):
             '--SNP_table', args.SNP_table,
             '--reference_fasta', args.reference_fasta,
             '--window_size', str(args.window_size),
-            '--nsites', str(args.nsites)
+            '--nsites', str(args.nsites),
+            '--outdir', args.output_dir
         ]
 
         if args.chrom_wise:
