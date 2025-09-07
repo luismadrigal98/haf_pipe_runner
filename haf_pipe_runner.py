@@ -62,6 +62,10 @@ Examples:
                        help='Name of the SNP table to be generated. Default is input VCF name with .SNP_table.txt suffix.')
     parser.add_argument('--haf_wrapper', type=str, required=True, 
                        help='Path to the bash haf-pipe wrapper.')
+    parser.add_argument('--haf_maindir', type=str, required=False,
+                       help='Directory in which HAF-pipe is located. Default: directory of the haf_wrapper script.')
+    parser.add_argument('--logfile', type=str, required=False,
+                       help='Name of file to write HAF-pipe log to. Default: auto-generated timestamp-based name.')
     
     # Output directory
     parser.add_argument('--output_dir', '-o', type=str, default='haf_pipe_output', 
@@ -74,8 +78,8 @@ Examples:
                        help='Window size in kb for haf-pipe. Default is 20.')
     parser.add_argument('--nsites', '-n', type=int, default=20, 
                        help="Number of sites to consider in the imputation step.")
-    parser.add_argument('--tasks', '-t', type=str, default='1,2,3,4',
-                       help='HAF-pipe tasks to run (comma-separated). Default: "1,2,3,4" (all tasks)')
+    parser.add_argument('--encoding', '-e', type=str, default='sanger', choices=['sanger', 'illumina'],
+                       help='Base quality encoding in BAM files (default: sanger)')
     parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
                        help='Disable chromosome-wise mode (default: enabled).')
 
@@ -98,6 +102,11 @@ Examples:
     if not args.SNP_table:
         args.SNP_table = os.path.splitext(os.path.basename(args.input_vcf))[0] + '.SNP_table.txt'
 
+    # Set default HAF maindir if not provided
+    if not args.haf_maindir:
+        args.haf_maindir = os.path.dirname(os.path.abspath(args.haf_wrapper))
+        logger.info(f"Using HAF-pipe main directory: {args.haf_maindir}")
+
     # Check if input files exist
     if not os.path.exists(args.input_vcf):
         logger.error(f"Input VCF file '{args.input_vcf}' does not exist.")
@@ -109,6 +118,10 @@ Examples:
 
     if not os.path.exists(args.reference_fasta):
         logger.error(f"Reference FASTA file '{args.reference_fasta}' does not exist.")
+        sys.exit(1)
+
+    if not os.path.exists(args.haf_maindir):
+        logger.error(f"HAF-pipe main directory '{args.haf_maindir}' does not exist.")
         sys.exit(1)
 
     # Get BAM files based on input method
@@ -156,9 +169,24 @@ Examples:
     # Set up parallel processing parameters
     max_workers = args.max_workers or min(len(bam_files), cpu_count())
 
+    # Create SNP table (this will be shared for all BAM files)
+
+    snp_table, success, error = run_haf_pipe_SNP_table_and_imputation(args)
+    if not success:
+        logger.error(f"Failed to create SNP table for {args.input_vcf}: {error}")
+        sys.exit(1)
+    else:
+        logger.info(f"SNP table created successfully: {snp_table}")
+        
+    # Validate SNP table before processing BAM files
+    valid, validation_error = validate_snp_table_for_bam_processing(snp_table)
+    if not valid:
+        logger.error(f"SNP table validation failed: {validation_error}")
+        sys.exit(1)
+
     # Process BAM files
     results = []
-    
+
     if args.parallel and len(bam_files) > 1:
         logger.info(f"Processing {len(bam_files)} BAM files in parallel with {max_workers} workers")
         
@@ -185,7 +213,8 @@ Examples:
     else:
         logger.info(f"Processing {len(bam_files)} BAM files sequentially")
         
-        for bam_file in bam_files:
+        for i, bam_file in enumerate(bam_files, 1):
+            logger.info(f"Processing BAM file {i}/{len(bam_files)}: {bam_file.name}")
             result = run_haf_pipe_single(bam_file, args)
             results.append(result)
             

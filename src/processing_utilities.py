@@ -95,20 +95,112 @@ def validate_bam_file(bam_file):
     
     return True, None
 
-def run_haf_pipe_single(bam_file, args):
-    """Run haf-pipe for a single BAM file."""
+def run_haf_pipe_SNP_table_and_imputation(args):
+    """
+    Run haf-pipe for SNP table generation and imputation (tasks 1,2).
+    
+    This function is specifically for tasks involving SNP table generation and imputation. This will
+    speed up processing in parallel of several BAMs, avoiding the overhead of multiple SNP table generations.
+
+    @param args: Parsed command-line arguments
+    @return: Tuple (SNP_table_file, success, error_message)
+
+    """
     try:
+        # Ensure output directory exists
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Construct full path for SNP table within output directory
+        snp_table_path = output_dir / args.SNP_table
+        
         cmd = [
             'sh', args.haf_wrapper,
-            '--tasks', args.tasks,
+            '--tasks', "1,2",  # Only tasks 1 and 2 for SNP table and imputation
+            '--maindir', args.haf_maindir,  # Specify HAF-pipe main directory
             '--vcf', args.input_vcf,
-            '--bamfile', str(bam_file),
-            '--snptable', args.SNP_table,
-            '--refseq', args.reference_fasta,
-            '--winsize', str(args.window_size),
+            '--snptable', str(snp_table_path),
+            '--impmethod', 'simpute',  # Add imputation method for task 2
             '--nsites', str(args.nsites),
             '--outdir', args.output_dir
         ]
+        
+        # Add logfile if specified
+        if hasattr(args, 'logfile') and args.logfile:
+            cmd.extend(['--logfile', args.logfile])
+        
+        # Add chromosome if specified for chromosome-wise processing
+        if args.chrom_wise and hasattr(args, 'target_chromosome'):
+            cmd.extend(['--chrom', args.target_chromosome])
+
+        logger.info(f"Generating the SNP table for {args.input_vcf}")
+        logger.debug(f"Command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Check if SNP table was created
+        if not snp_table_path.exists():
+            error_msg = f"SNP table was not created: {snp_table_path}"
+            logger.error(error_msg)
+            return (None, False, error_msg)
+        
+        else:
+            logger.info(f"Successfully processed {args.input_vcf}")
+            # Update args to use the full path for subsequent BAM processing
+            args.SNP_table = str(snp_table_path)
+            return (str(snp_table_path), True, None)
+        
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Error processing {args.input_vcf}: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}"
+        logger.error(error_msg)
+        return (args.input_vcf, False, error_msg)
+    
+    except Exception as e:
+        error_msg = f"Unexpected error processing {args.input_vcf}: {e}"
+        logger.error(error_msg)
+        return (args.input_vcf, False, error_msg)
+
+def validate_snp_table_for_bam_processing(snp_table_path):
+    """Validate that the SNP table exists and is readable for BAM processing."""
+    snp_path = Path(snp_table_path)
+    
+    if not snp_path.exists():
+        return False, f"SNP table not found: {snp_table_path}"
+    
+    if not snp_path.is_file():
+        return False, f"SNP table path is not a file: {snp_table_path}"
+    
+    try:
+        # Try to read the first few lines to validate format
+        with open(snp_path, 'r') as f:
+            lines = f.readlines()
+            if len(lines) < 2:
+                return False, f"SNP table appears to be empty or malformed: {snp_table_path}"
+            
+        logger.info(f"SNP table validated: {snp_table_path} ({len(lines)} lines)")
+        return True, None
+        
+    except Exception as e:
+        return False, f"Error reading SNP table {snp_table_path}: {e}"
+
+def run_haf_pipe_single(bam_file, args):
+    """Run haf-pipe for a single BAM file (tasks 3,4)."""
+    try:
+        cmd = [
+            'sh', args.haf_wrapper,
+            '--tasks', "3,4",  # Only tasks 3 and 4 for haplotype and allele frequencies
+            '--maindir', args.haf_maindir,  # Specify HAF-pipe main directory
+            '--snptable', args.SNP_table,  # Use the pre-generated SNP table
+            '--bamfile', str(bam_file),
+            '--refseq', args.reference_fasta,
+            '--winsize', str(args.window_size),
+            '--encoding', args.encoding,  # Use user-specified encoding
+            '--outdir', args.output_dir
+        ]
+        
+        # Add logfile if specified
+        if hasattr(args, 'logfile') and args.logfile:
+            cmd.extend(['--logfile', args.logfile])
 
         if args.chrom_wise:
             chr_name = extract_chromosome_from_path(str(bam_file))
