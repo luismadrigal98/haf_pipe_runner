@@ -74,6 +74,8 @@ Examples:
                        help='Window size in kb for haf-pipe. Default is 20.')
     parser.add_argument('--nsites', '-n', type=int, default=20, 
                        help="Number of sites to consider in the imputation step.")
+    parser.add_argument('--tasks', '-t', type=str, default='1,2,3,4',
+                       help='HAF-pipe tasks to run (comma-separated). Default: "1,2,3,4" (all tasks)')
     parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
                        help='Disable chromosome-wise mode (default: enabled).')
 

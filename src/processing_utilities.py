@@ -100,11 +100,12 @@ def run_haf_pipe_single(bam_file, args):
     try:
         cmd = [
             'sh', args.haf_wrapper,
-            '--input_vcf', args.input_vcf,
-            '--bam_file', str(bam_file),
-            '--SNP_table', args.SNP_table,
-            '--reference_fasta', args.reference_fasta,
-            '--window_size', str(args.window_size),
+            '--tasks', args.tasks,
+            '--vcf', args.input_vcf,
+            '--bamfile', str(bam_file),
+            '--snptable', args.SNP_table,
+            '--refseq', args.reference_fasta,
+            '--winsize', str(args.window_size),
             '--nsites', str(args.nsites),
             '--outdir', args.output_dir
         ]
