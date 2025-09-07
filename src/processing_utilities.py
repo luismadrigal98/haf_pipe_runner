@@ -37,12 +37,19 @@ def extract_chromosome_from_path(bam_file_path):
     # Check both directory name and filename
     search_strings = [path.parent.name, path.name]
     
+    logger.debug(f"Extracting chromosome from path: {bam_file_path}")
+    logger.debug(f"Directory name: {path.parent.name}")
+    logger.debug(f"Filename: {path.name}")
+    
     for search_str in search_strings:
+        logger.debug(f"Searching in: '{search_str}'")
         for pattern in chr_patterns:
             match = re.search(pattern, search_str, re.IGNORECASE)
             if match:
                 chr_num = match.group(1).zfill(2)  # Zero-pad to 2 digits
-                return f"Chr_{chr_num}"
+                result = f"Chr_{chr_num}"
+                logger.debug(f"Found chromosome match: {result}")
+                return result
     
     logger.warning(f"Could not extract chromosome name from path: {bam_file_path}")
     return None
@@ -78,6 +85,63 @@ def get_bam_files_from_directories(directories):
         all_bam_files.extend(bam_files)
         logger.info(f"Directory {directory}: {len(bam_files)} BAM files")
     return all_bam_files
+
+def group_bam_files_by_chromosome(bam_files):
+    """Group BAM files by chromosome for chromosome-wise processing."""
+    bam_groups = {}
+    
+    for bam_file in bam_files:
+        chromosome = extract_chromosome_from_path(str(bam_file))
+        if chromosome:
+            if chromosome not in bam_groups:
+                bam_groups[chromosome] = []
+            bam_groups[chromosome].append(bam_file)
+            logger.debug(f"Added {bam_file.name} to chromosome group {chromosome}")
+        else:
+            logger.warning(f"Could not determine chromosome for BAM file: {bam_file}")
+    
+    return bam_groups
+
+def process_bam_files_for_chromosome(bam_files, args, max_workers):
+    """Process a list of BAM files for a specific chromosome."""
+    results = []
+    
+    if args.parallel and len(bam_files) > 1:
+        logger.info(f"Processing {len(bam_files)} BAM files in parallel with {max_workers} workers")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_bam = {executor.submit(run_haf_pipe_single, bam, args): bam 
+                           for bam in bam_files}
+            
+            for future in as_completed(future_to_bam):
+                bam = future_to_bam[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as exc:
+                    error_msg = f"BAM file {bam} generated an exception: {exc}"
+                    logger.error(error_msg)
+                    results.append((bam, False, error_msg))
+                    
+                    if not args.continue_on_error:
+                        logger.error("Stopping due to error (use --continue_on_error to continue)")
+                        # Cancel remaining futures
+                        for f in future_to_bam:
+                            f.cancel()
+                        break
+    else:
+        logger.info(f"Processing {len(bam_files)} BAM files sequentially")
+        
+        for i, bam_file in enumerate(bam_files, 1):
+            logger.info(f"Processing BAM file {i}/{len(bam_files)}: {bam_file.name}")
+            result = run_haf_pipe_single(bam_file, args)
+            results.append(result)
+            
+            if not result[1] and not args.continue_on_error:
+                logger.error("Stopping due to error (use --continue_on_error to continue)")
+                break
+    
+    return results
 
 def validate_bam_file(bam_file):
     """Validate that a BAM file exists and has a proper index."""
@@ -130,8 +194,14 @@ def run_haf_pipe_SNP_table_and_imputation(args):
             cmd.extend(['--logfile', args.logfile])
         
         # Add chromosome if specified for chromosome-wise processing
-        if args.chrom_wise and hasattr(args, 'target_chromosome'):
+        if args.chrom_wise and hasattr(args, 'target_chromosome') and args.target_chromosome:
             cmd.extend(['--chrom', args.target_chromosome])
+            logger.info(f"Using target chromosome for SNP table generation: {args.target_chromosome}")
+        elif args.chrom_wise:
+            logger.error("Chromosome-wise mode enabled but no target chromosome specified. This should not happen.")
+            return (None, False, "No target chromosome specified for chromosome-wise processing")
+        else:
+            logger.info("Running SNP table generation without chromosome specification (non-chromosome-wise mode)")
 
         logger.info(f"Generating the SNP table for {args.input_vcf}")
         logger.debug(f"Command: {' '.join(cmd)}")

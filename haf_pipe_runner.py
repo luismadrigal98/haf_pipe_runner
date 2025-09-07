@@ -1,7 +1,12 @@
 """
 Enhanced HAF-pipe Runner
 
-This enhanced version can handle both single directories and multiple directories
+This enhanced version can handle both single direc    parser.add_argument('--encoding', '-e', type=str, default='sanger', choices=['sanger', 'illumina'],
+                       help='Base quality encoding in BAM files (default: sanger)')
+    parser.add_argument('--chromosome', type=str, required=False,
+                       help='Manually specify target chromosome (e.g., Chr_01). If not provided, will auto-detect from BAM file paths.')
+    parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
+                       help='Disable chromosome-wise mode (default: enabled).')es and multiple directories
 containing chromosome-specific BAM files.
 
 @author: Luis Javier Madrigal-Roca
@@ -78,8 +83,8 @@ Examples:
                        help='Window size in kb for haf-pipe. Default is 20.')
     parser.add_argument('--nsites', '-n', type=int, default=20, 
                        help="Number of sites to consider in the imputation step.")
-    parser.add_argument('--encoding', '-e', type=str, default='sanger', choices=['sanger', 'illumina'],
-                       help='Base quality encoding in BAM files (default: sanger)')
+    parser.add_argument('--encoding', '-e', type=str, default='illumina', choices=['sanger', 'illumina'],
+                       help='Base quality encoding in BAM files (default: illumina)')
     parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
                        help='Disable chromosome-wise mode (default: enabled).')
 
@@ -166,65 +171,75 @@ Examples:
 
     logger.info(f"Found {len(bam_files)} BAM files to process")
 
+    # Group BAM files by chromosome for chromosome-wise processing
+    if args.chrom_wise:
+        if args.chromosome:
+            # Manual chromosome specified - all BAM files belong to this chromosome
+            bam_groups = {args.chromosome: bam_files}
+            logger.info(f"Using manually specified chromosome {args.chromosome} for all BAM files")
+        else:
+            # Auto-detect chromosomes from BAM file paths
+            bam_groups = group_bam_files_by_chromosome(bam_files)
+            if not bam_groups:
+                logger.error("No valid chromosome groups found. Disabling chromosome-wise mode.")
+                args.chrom_wise = False
+            else:
+                logger.info(f"Grouped BAM files into {len(bam_groups)} chromosome groups: {list(bam_groups.keys())}")
+    
+    if not args.chrom_wise:
+        # For non-chromosome-wise processing, treat all BAM files as one group
+        bam_groups = {"all": bam_files}
+
     # Set up parallel processing parameters
     max_workers = args.max_workers or min(len(bam_files), cpu_count())
 
-    # Create SNP table (this will be shared for all BAM files)
-
-    snp_table, success, error = run_haf_pipe_SNP_table_and_imputation(args)
-    if not success:
-        logger.error(f"Failed to create SNP table for {args.input_vcf}: {error}")
-        sys.exit(1)
-    else:
-        logger.info(f"SNP table created successfully: {snp_table}")
+    # Process each chromosome group
+    all_results = []
+    
+    for chromosome, chromosome_bam_files in bam_groups.items():
+        logger.info(f"\n=== Processing chromosome group: {chromosome} ({len(chromosome_bam_files)} BAM files) ===")
         
-    # Validate SNP table before processing BAM files
-    valid, validation_error = validate_snp_table_for_bam_processing(snp_table)
-    if not valid:
-        logger.error(f"SNP table validation failed: {validation_error}")
-        sys.exit(1)
-
-    # Process BAM files
-    results = []
-
-    if args.parallel and len(bam_files) > 1:
-        logger.info(f"Processing {len(bam_files)} BAM files in parallel with {max_workers} workers")
+        # Create chromosome-specific SNP table
+        if args.chrom_wise and chromosome != "all":
+            # Set target chromosome for this group
+            args.target_chromosome = chromosome
+            snp_table_name = f"{os.path.splitext(args.SNP_table)[0]}_{chromosome}.txt"
+        else:
+            snp_table_name = args.SNP_table
+            args.target_chromosome = None
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_bam = {executor.submit(run_haf_pipe_single, bam, args): bam 
-                           for bam in bam_files}
+        # Store original SNP table name and set chromosome-specific one
+        original_snp_table = args.SNP_table
+        args.SNP_table = snp_table_name
+        
+        # Create SNP table for this chromosome
+        snp_table, success, error = run_haf_pipe_SNP_table_and_imputation(args)
+        if not success:
+            logger.error(f"Failed to create SNP table for chromosome {chromosome}: {error}")
+            if not args.continue_on_error:
+                sys.exit(1)
+            continue
+        else:
+            logger.info(f"SNP table created successfully for chromosome {chromosome}: {snp_table}")
             
-            for future in as_completed(future_to_bam):
-                bam = future_to_bam[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as exc:
-                    error_msg = f"BAM file {bam} generated an exception: {exc}"
-                    logger.error(error_msg)
-                    results.append((bam, False, error_msg))
-                    
-                    if not args.continue_on_error:
-                        logger.error("Stopping due to error (use --continue_on_error to continue)")
-                        # Cancel remaining futures
-                        for f in future_to_bam:
-                            f.cancel()
-                        break
-    else:
-        logger.info(f"Processing {len(bam_files)} BAM files sequentially")
+        # Validate SNP table before processing BAM files
+        valid, validation_error = validate_snp_table_for_bam_processing(snp_table)
+        if not valid:
+            logger.error(f"SNP table validation failed for chromosome {chromosome}: {validation_error}")
+            if not args.continue_on_error:
+                sys.exit(1)
+            continue
+
+        # Process BAM files for this chromosome
+        chromosome_results = process_bam_files_for_chromosome(chromosome_bam_files, args, max_workers)
+        all_results.extend(chromosome_results)
         
-        for i, bam_file in enumerate(bam_files, 1):
-            logger.info(f"Processing BAM file {i}/{len(bam_files)}: {bam_file.name}")
-            result = run_haf_pipe_single(bam_file, args)
-            results.append(result)
-            
-            if not result[1] and not args.continue_on_error:
-                logger.error("Stopping due to error (use --continue_on_error to continue)")
-                break
+        # Restore original SNP table name for next iteration
+        args.SNP_table = original_snp_table
 
     # Print summary
-    successful = [r for r in results if r[1]]
-    failed = [r for r in results if not r[1]]
+    successful = [r for r in all_results if r[1]]
+    failed = [r for r in all_results if not r[1]]
     
     logger.info(f"\nProcessing complete!")
     logger.info(f"Successfully processed: {len(successful)} BAM files")
