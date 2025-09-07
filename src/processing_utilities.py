@@ -175,13 +175,9 @@ def run_haf_pipe_complete(bam_file, args):
             '--winsize', str(args.window_size),
             '--nsites', str(args.nsites),
             '--encoding', args.encoding,
-            '--outdir', working_output_dir
+            '--outdir', working_output_dir,
+            '--logfile', os.path.join(working_output_dir, f"HAFpipe-{bam_name}.log")
         ]
-        
-        # Add logfile if specified
-        if hasattr(args, 'logfile') and args.logfile:
-            bam_logfile = f"{bam_name}_{args.logfile}"
-            cmd.extend(['--logfile', os.path.join(working_output_dir, bam_logfile)])
         
         # Add chromosome if chromosome-wise processing is enabled
         if args.chrom_wise:
@@ -323,6 +319,7 @@ python {sys.argv[0]} \\
     --window_size {args.window_size} \\
     --nsites {args.nsites} \\
     --encoding {args.encoding} \\
+    --logfile HAFpipe-{bam_name}.log \\
     {chromosome_arg} \\
     {"--keep_temp_files" if args.keep_temp_files else ""} \\
     {"--no-chrom-wise" if not args.chrom_wise else ""}

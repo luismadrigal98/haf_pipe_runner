@@ -95,8 +95,8 @@ Examples:
                        help='Enable parallel processing for faster execution.')
     parser.add_argument('--slurm', action='store_true',
                        help='Submit jobs to SLURM cluster instead of local parallel processing.')
-    parser.add_argument('--slurm_partition', type=str, default='eeb,kelly,kucg',
-                       help='SLURM partition(s) to use (default: eeb,kelly,kucg)')
+    parser.add_argument('--slurm_partition', type=str, default='sixhour,eeb,kelly,kucg',
+                       help='SLURM partition(s) to use (default: sixhour,eeb,kelly,kucg)')
     parser.add_argument('--slurm_email', type=str, default='madrigalrocalj@ku.edu',
                        help='Email for SLURM notifications')
     parser.add_argument('--slurm_time', type=str, default='12-00:00:00',
