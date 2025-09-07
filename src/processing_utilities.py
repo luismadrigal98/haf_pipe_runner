@@ -1,8 +1,8 @@
 """
-Utilities for processing BAM files and running haf-pipe.
+Utility functions for processing BAM files and running haf-pipe.
 
-@author: Luis Javier Madrigal-Roca
-@date:2025-09-07
+Includes functions to extract chromosome names, find BAM directories,
+and run haf-pipe on individual BAM files.
 
 """
 
@@ -11,22 +11,40 @@ import os
 import sys
 import argparse
 import logging
+import re
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
-def extract_chromosome_name(bam_file):
-    """Extract chromosome name from BAM file using samtools."""
-    try:
-        result = subprocess.run(['samtools', 'view', '-H', bam_file], capture_output=True, text=True, check=True)
-        for line in result.stdout.splitlines():
-            if line.startswith('@SQ'):
-                fields = line.split('\t')
-                for field in fields:
-                    if field.startswith('SN:'):
-                        return field[3:]  # Return chromosome name after 'SN:'
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error reading BAM file {bam_file}: {e}")
+# Set up logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def extract_chromosome_from_path(bam_file_path):
+    """
+    Extract chromosome name from BAM file path or directory.
+    Works with directory names like Chr_01, Chr_02, etc.
+    Or filenames containing chromosome information.
+    """
+    path = Path(bam_file_path)
+    
+    # Consolidated chromosome patterns - covers all common formats
+    chr_patterns = [
+        r'(?:Chr|chr|chromosome)_?(\d+)',  # Chr_01, chr01, chromosome_01, etc.
+        r'(?:CHR|CHROM)_?(\d+)',          # CHR01, CHROM_01, etc.
+    ]
+    
+    # Check both directory name and filename
+    search_strings = [path.parent.name, path.name]
+    
+    for search_str in search_strings:
+        for pattern in chr_patterns:
+            match = re.search(pattern, search_str, re.IGNORECASE)
+            if match:
+                chr_num = match.group(1).zfill(2)  # Zero-pad to 2 digits
+                return f"Chr_{chr_num}"
+    
+    logger.warning(f"Could not extract chromosome name from path: {bam_file_path}")
     return None
 
 def find_bam_directories(base_path, pattern=None):
@@ -61,6 +79,22 @@ def get_bam_files_from_directories(directories):
         logger.info(f"Directory {directory}: {len(bam_files)} BAM files")
     return all_bam_files
 
+def validate_bam_file(bam_file):
+    """Validate that a BAM file exists and has a proper index."""
+    bam_path = Path(bam_file)
+    if not bam_path.exists():
+        return False, f"BAM file does not exist: {bam_file}"
+    
+    # Check for BAM index (.bai or .csi)
+    bai_path = bam_path.with_suffix('.bam.bai')
+    csi_path = bam_path.with_suffix('.bam.csi')
+    
+    if not bai_path.exists() and not csi_path.exists():
+        logger.warning(f"No index found for BAM file: {bam_file}")
+        # Don't fail, just warn - samtools can create index if needed
+    
+    return True, None
+
 def run_haf_pipe_single(bam_file, args):
     """Run haf-pipe for a single BAM file."""
     try:
@@ -75,12 +109,12 @@ def run_haf_pipe_single(bam_file, args):
         ]
 
         if args.chrom_wise:
-            try:
-                chr_name = extract_chromosome_name(str(bam_file))
-                if chr_name:
-                    cmd.extend(['--chrom', chr_name])
-            except Exception as e:
-                logger.error(f"Failed to extract chromosome name from {bam_file}: {e}")
+            chr_name = extract_chromosome_from_path(str(bam_file))
+            if chr_name:
+                cmd.extend(['--chrom', chr_name])
+                logger.info(f"Using chromosome: {chr_name} for BAM file: {bam_file}")
+            else:
+                logger.warning(f"Could not determine chromosome for {bam_file}, proceeding without --chrom flag")
 
         logger.info(f"Running haf-pipe for {bam_file}")
         logger.debug(f"Command: {' '.join(cmd)}")
