@@ -70,10 +70,8 @@ Examples:
                        help='Window size in kb for haf-pipe. Default is 20.')
     parser.add_argument('--nsites', '-n', type=int, default=20, 
                        help="Number of sites to consider in the imputation step.")
-    parser.add_argument('--chrom-wise', dest='chrom_wise', action='store_true', default=True,
-                       help='Flag to indicate if haf-pipe should be run in chromosome-wise mode (default: True).')
-    parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false',
-                       help='Disable chromosome-wise mode.')
+    parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
+                       help='Disable chromosome-wise mode (default: enabled).')
 
     # Overall control
     parser.add_argument('--parallel', action='store_true', 
