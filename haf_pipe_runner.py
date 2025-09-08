@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Import utility functions from processing_utilities.py
 from src.processing_utilities import *
+from src.postprocessing_utilities import run_full_postprocessing, generate_summary_report
 
 def main():
     # Parse command-line arguments
@@ -37,13 +38,16 @@ def main():
         epilog="""
 Examples:
   # Single directory (original behavior)
-  python3 haf_pipe_runner_enhanced.py --input_vcf variants.vcf --bam_file_or_dir /path/to/bam/dir --haf_wrapper wrapper.sh --reference_fasta ref.fa
+  python3 haf_pipe_runner.py --input_vcf variants.vcf --bam_file_or_dir /path/to/bam/dir --haf_wrapper wrapper.sh --reference_fasta ref.fa
   
   # Multiple directories (new feature)
-  python3 haf_pipe_runner_enhanced.py --input_vcf variants.vcf --bam_directories /path/Chr_01 /path/Chr_02 /path/Chr_03 --haf_wrapper wrapper.sh --reference_fasta ref.fa
+  python3 haf_pipe_runner.py --input_vcf variants.vcf --bam_directories /path/Chr_01 /path/Chr_02 /path/Chr_03 --haf_wrapper wrapper.sh --reference_fasta ref.fa
   
-  # Auto-discover directories with pattern
-  python3 haf_pipe_runner_enhanced.py --input_vcf variants.vcf --base_directory /path/to/chromosomes --dir_pattern "Chr_" --haf_wrapper wrapper.sh --reference_fasta ref.fa --parallel
+  # Auto-discover directories with pattern and SLURM processing
+  python3 haf_pipe_runner.py --input_vcf variants.vcf --base_directory /path/to/chromosomes --dir_pattern "Chr_" --haf_wrapper wrapper.sh --reference_fasta ref.fa --slurm
+  
+  # With post-processing to consolidate results
+  python3 haf_pipe_runner.py --input_vcf variants.vcf --base_directory /path/to/chromosomes --haf_wrapper wrapper.sh --reference_fasta ref.fa --slurm --run_postprocessing
         """
     )
 
@@ -87,6 +91,8 @@ Examples:
                        help="Number of sites to consider in the imputation step.")
     parser.add_argument('--encoding', '-e', type=str, default='illumina', choices=['sanger', 'illumina'],
                        help='Base quality encoding in BAM files (default: illumina)')
+    parser.add_argument('--imputation_method', '--method', type=str, default='simpute',
+                       help='Imputation method for HAF-pipe (default: simpute). Common options: npute, none')
     parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
                        help='Disable chromosome-wise mode (default: enabled).')
 
@@ -109,8 +115,12 @@ Examples:
                        help='Continue processing other files if one fails.')
     parser.add_argument('--keep_temp_files', action='store_true',
                        help='Keep temporary files for debugging (default: cleanup)')
-    parser.add_argument('--temp_dir_per_bam', action='store_true', default=True,
+    parser.add_argument('--temp_dir_per_bam', type=bool, default=True,
                        help='Create separate temporary directory for each BAM file (default: enabled)')
+    parser.add_argument('--run_postprocessing', action='store_true',
+                       help='Run post-processing to consolidate results into unified outputs')
+    parser.add_argument('--consolidated_dir', type=str, default='consolidated_results',
+                       help='Directory name for consolidated post-processing results (default: consolidated_results)')
 
     # Print help if no arguments are provided
     if len(sys.argv) == 1:
@@ -244,6 +254,18 @@ Examples:
         logger.error(f"Failed to process: {len(failed)} BAM files")
         for bam_file, _, error in failed:
             logger.error(f"  - {bam_file}: {error}")
+    
+    # Run post-processing if requested
+    if args.run_postprocessing and successful:
+        logger.info("\nStarting post-processing to consolidate results...")
+        try:
+            run_full_postprocessing(args.output_dir, args.consolidated_dir)
+            generate_summary_report(args.output_dir, args.consolidated_dir)
+            logger.info("Post-processing completed successfully!")
+        except Exception as e:
+            logger.error(f"Post-processing failed: {e}")
+    elif args.run_postprocessing and not successful:
+        logger.warning("Skipping post-processing due to no successful results")
     
     if failed and not args.continue_on_error:
         sys.exit(1)

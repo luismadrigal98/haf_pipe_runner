@@ -175,6 +175,7 @@ def run_haf_pipe_complete(bam_file, args):
             '--winsize', str(args.window_size),
             '--nsites', str(args.nsites),
             '--encoding', args.encoding,
+            '--method', args.imputation_method,  # Add imputation method
             '--outdir', working_output_dir,
             '--logfile', os.path.join(working_output_dir, f"HAFpipe-{bam_name}.log")
         ]
@@ -319,6 +320,7 @@ python {sys.argv[0]} \\
     --window_size {args.window_size} \\
     --nsites {args.nsites} \\
     --encoding {args.encoding} \\
+    --imputation_method {args.imputation_method} \\
     --logfile HAFpipe-{bam_name}.log \\
     {chromosome_arg} \\
     {"--keep_temp_files" if args.keep_temp_files else ""} \\
