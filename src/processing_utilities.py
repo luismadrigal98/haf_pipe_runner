@@ -149,6 +149,11 @@ def run_haf_pipe_complete(bam_file, args):
     This creates per-BAM isolation with separate temporary directories.
     """
     try:
+        # Validate BAM file and index
+        is_valid, message = validate_bam_file(bam_file)
+        if not is_valid:
+            return (bam_file, False, f"BAM validation failed: {message}")
+        
         # Create BAM-specific output directory if temp_dir_per_bam is enabled
         if args.temp_dir_per_bam:
             bam_name = Path(bam_file).stem
@@ -164,21 +169,29 @@ def run_haf_pipe_complete(bam_file, args):
         bam_snp_table = f"{bam_name}_{args.SNP_table}"
         bam_snp_table_path = Path(working_output_dir) / bam_snp_table
         
+        # Convert all paths to absolute paths for HAF-pipe
+        abs_working_dir = os.path.abspath(working_output_dir)
+        abs_bam_file = os.path.abspath(bam_file)
+        abs_vcf_file = os.path.abspath(args.input_vcf)
+        abs_ref_file = os.path.abspath(args.reference_fasta)
+        abs_snp_table = os.path.abspath(bam_snp_table_path)
+        abs_logfile = os.path.abspath(os.path.join(working_output_dir, f"HAFpipe-{bam_name}.log"))
+        
         cmd = [
             'sh', args.haf_wrapper,
             '--tasks', "1,2,3,4",  # All tasks for complete processing
             '--maindir', args.haf_maindir,
-            '--vcf', args.input_vcf,
-            '--bamfile', str(bam_file),
-            '--snptable', str(bam_snp_table_path),
-            '--refseq', args.reference_fasta,
+            '--vcf', abs_vcf_file,
+            '--bamfile', abs_bam_file,
+            '--snptable', abs_snp_table,
+            '--refseq', abs_ref_file,
             '--winsize', str(args.window_size),
             '--nsites', str(args.nsites),
             '--encoding', args.encoding,
             '--impmethod', args.imputation_method,  # Correct parameter name
             '--mincalls', str(args.mincalls),
-            '--outdir', working_output_dir,
-            '--logfile', os.path.join(working_output_dir, f"HAFpipe-{bam_name}.log")
+            '--outdir', abs_working_dir,
+            '--logfile', abs_logfile
         ]
         
         # Add keephets flag if specified
@@ -202,8 +215,43 @@ def run_haf_pipe_complete(bam_file, args):
 
         logger.info(f"Running complete haf-pipe for {bam_file}")
         logger.debug(f"Command: {' '.join(cmd)}")
+        logger.debug(f"Working directory: {abs_working_dir}")
         
-        _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Store current directory and change to working directory
+        original_cwd = os.getcwd()
+        
+        try:
+            # Change to the working directory so HAF-pipe can find files correctly
+            os.chdir(abs_working_dir)
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            # Log what files were actually produced
+            logger.info(f"HAF-pipe completed for {bam_file}")
+            output_files = list(Path(abs_working_dir).glob('*'))
+            logger.debug(f"Output files produced: {[f.name for f in output_files if f.is_file()]}")
+            
+            # Check for expected output files based on HAF-pipe naming convention
+            if args.chromosome:
+                expected_freqs = Path(abs_working_dir) / f"{Path(abs_bam_file).name}.{args.chromosome}.freqs"
+            else:
+                chr_name = extract_chromosome_from_path(str(bam_file))
+                expected_freqs = Path(abs_working_dir) / f"{Path(abs_bam_file).name}.{chr_name}.freqs"
+            
+            if expected_freqs.exists():
+                logger.info(f"Found expected freqs file: {expected_freqs}")
+            else:
+                logger.warning(f"Expected freqs file not found: {expected_freqs}")
+                # Look for any .freqs files
+                freqs_files = list(Path(abs_working_dir).glob('*.freqs'))
+                if freqs_files:
+                    logger.info(f"Found freqs files: {[f.name for f in freqs_files]}")
+                else:
+                    logger.warning("No .freqs files found at all!")
+                    
+        finally:
+            # Always restore the original working directory
+            os.chdir(original_cwd)
         
         # Copy results to main output directory if using temp directories
         if args.temp_dir_per_bam and not args.keep_temp_files:
@@ -351,8 +399,13 @@ def copy_results_to_main_output(temp_dir, main_output_dir, bam_name):
     temp_path = Path(temp_dir)
     main_path = Path(main_output_dir)
     
-    # Copy important output files (adjust extensions as needed)
-    important_extensions = ['.freqs', '.afSite', '.txt']
+    # Copy important output files (HAF-pipe specific naming)
+    # Expected files from HAF-pipe:
+    # - *.freqs (from task 3)
+    # - *.afSite (from task 4) 
+    # - *.SNP_table.txt (from task 1)
+    # - *.simpute or *.npute (from task 2)
+    important_extensions = ['.freqs', '.afSite', '.txt', '.simpute', '.npute', '.numeric', '.alleleCts']
     
     for file_path in temp_path.iterdir():
         if file_path.is_file() and any(file_path.suffix == ext for ext in important_extensions):
@@ -376,8 +429,39 @@ def validate_bam_file(bam_file):
     if not bam_path.exists():
         return False, f"BAM file does not exist: {bam_file}"
     
-    # Check for BAM index (.bai or .csi)
-    bai_path = bam_path.with_suffix('.bam.bai')
+    # Check for BAM index (.bai) - HAF-pipe expects .bam.bai format
+    bai_path = Path(str(bam_path) + '.bai')
+    alt_bai_path = bam_path.with_suffix('.bai')  # Some tools create .bai without .bam
+    
+    if not bai_path.exists():
+        if alt_bai_path.exists():
+            # Create symlink from .bai to .bam.bai
+            try:
+                bai_path.symlink_to(alt_bai_path)
+                logger.info(f"Created BAM index symlink: {bai_path}")
+            except Exception as e:
+                logger.warning(f"Could not create BAM index symlink: {e}")
+                return False, f"BAM index file missing and could not create symlink: {bam_file}.bai"
+        else:
+            return False, f"BAM index file missing: {bam_file}.bai (required by HAF-pipe)"
+    
+    return True, "BAM file and index validated"
+
+def check_haf_pipe_dependencies():
+    """Check if HAF-pipe dependencies are available."""
+    required_tools = ['harp', 'tabix', 'bgzip', 'Rscript']
+    missing_tools = []
+    
+    for tool in required_tools:
+        try:
+            subprocess.run(['which', tool], check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            missing_tools.append(tool)
+    
+    if missing_tools:
+        return False, f"Missing required tools: {', '.join(missing_tools)}"
+    
+    return True, "All dependencies found"
     csi_path = bam_path.with_suffix('.bam.csi')
     
     if not bai_path.exists() and not csi_path.exists():
