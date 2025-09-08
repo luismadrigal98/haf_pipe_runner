@@ -157,12 +157,19 @@ def run_haf_pipe_complete(bam_file, args):
         # Create BAM-specific output directory if temp_dir_per_bam is enabled
         if args.temp_dir_per_bam:
             bam_name = Path(bam_file).stem
-            bam_output_dir = Path(args.output_dir) / f"temp_{bam_name}"
-            bam_output_dir.mkdir(parents=True, exist_ok=True)
-            working_output_dir = str(bam_output_dir)
+            # Create main BAM output directory
+            bam_main_output_dir = Path(args.output_dir) / f"{bam_name}_output"
+            bam_main_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create temp subdirectory within BAM output directory
+            bam_temp_dir = bam_main_output_dir / f"temp_{bam_name}"
+            bam_temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            working_output_dir = str(bam_temp_dir)
             logger.info(f"Using BAM-specific directory: {working_output_dir}")
         else:
             working_output_dir = args.output_dir
+            bam_main_output_dir = Path(args.output_dir)
         
         # Create BAM-specific SNP table name
         bam_name = Path(bam_file).stem
@@ -253,12 +260,17 @@ def run_haf_pipe_complete(bam_file, args):
             # Always restore the original working directory
             os.chdir(original_cwd)
         
-        # Copy results to main output directory if using temp directories
-        if args.temp_dir_per_bam and not args.keep_temp_files:
-            copy_results_to_main_output(working_output_dir, args.output_dir, bam_name)
+        # Copy results to BAM output directory if using temp directories
+        if args.temp_dir_per_bam:
+            # Always copy important files to preserve them
+            copied_files = copy_results_to_main_output(working_output_dir, str(bam_main_output_dir), bam_name)
+            
             # Cleanup temp directory if not keeping files
             if not args.keep_temp_files:
                 cleanup_temp_directory(working_output_dir)
+                logger.info(f"Cleaned up temp directory, preserved {len(copied_files)} important files")
+            else:
+                logger.info(f"Kept temp directory and copied {len(copied_files)} important files")
         
         logger.info(f"Successfully processed {bam_file}")
         return (bam_file, True, None)
@@ -392,26 +404,65 @@ echo "Job completed for {bam_file}"
     
     return script_path
 
-def copy_results_to_main_output(temp_dir, main_output_dir, bam_name):
-    """Copy important results from temp directory to main output directory."""
+def copy_results_to_main_output(temp_dir, bam_output_dir, bam_name):
+    """
+    Copy important results from temp directory to BAM output directory.
+    This preserves final outputs when temp directories are cleaned up.
+    
+    Args:
+        temp_dir: Path to temp directory (e.g., BAM_NAME_output/temp_BAM_NAME/)
+        bam_output_dir: Path to BAM output directory (e.g., BAM_NAME_output/)  
+        bam_name: Name of BAM file (without extension)
+    """
     import shutil
     
     temp_path = Path(temp_dir)
-    main_path = Path(main_output_dir)
+    output_path = Path(bam_output_dir)
+    
+    # Ensure output directory exists
+    output_path.mkdir(parents=True, exist_ok=True)
     
     # Copy important output files (HAF-pipe specific naming)
-    # Expected files from HAF-pipe:
-    # - *.freqs (from task 3)
-    # - *.afSite (from task 4) 
-    # - *.SNP_table.txt (from task 1)
-    # - *.simpute or *.npute (from task 2)
-    important_extensions = ['.freqs', '.afSite', '.txt', '.simpute', '.npute', '.numeric', '.alleleCts']
+    # Priority files that should always be preserved:
+    priority_extensions = ['.freqs', '.afSite']
+    
+    # Other useful files to preserve:
+    other_extensions = ['.txt', '.simpute', '.npute', '.numeric', '.alleleCts']
+    
+    all_extensions = priority_extensions + other_extensions
+    
+    copied_files = []
+    missing_priority = []
     
     for file_path in temp_path.iterdir():
-        if file_path.is_file() and any(file_path.suffix == ext for ext in important_extensions):
-            dest_path = main_path / f"{bam_name}_{file_path.name}"
-            shutil.copy2(file_path, dest_path)
-            logger.debug(f"Copied {file_path} to {dest_path}")
+        if file_path.is_file():
+            # Check if this is an important file
+            if any(file_path.suffix == ext for ext in all_extensions):
+                # For priority files, use clean naming
+                if file_path.suffix in priority_extensions:
+                    dest_name = f"{bam_name}{file_path.suffix}"
+                    dest_path = output_path / dest_name
+                else:
+                    # For other files, keep more descriptive names
+                    dest_path = output_path / file_path.name
+                
+                try:
+                    shutil.copy2(file_path, dest_path)
+                    copied_files.append(dest_path.name)
+                    logger.info(f"Preserved: {dest_path.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to copy {file_path.name}: {e}")
+    
+    # Check for missing priority files
+    for ext in priority_extensions:
+        if not any(f.endswith(ext) for f in copied_files):
+            missing_priority.append(ext)
+    
+    if missing_priority:
+        logger.warning(f"Missing important output files for {bam_name}: {missing_priority}")
+    
+    logger.info(f"Copied {len(copied_files)} important files from temp directory to {output_path}")
+    return copied_files
 
 def cleanup_temp_directory(temp_dir):
     """Remove temporary directory and its contents."""
