@@ -299,7 +299,7 @@ def create_slurm_script(bam_file, args, slurm_dir):
 #SBATCH --mem-per-cpu={args.slurm_mem}
 #SBATCH --time={args.slurm_time}
 #SBATCH --mail-user={args.slurm_email}
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=FAIL
 
 # Load environment
 module load conda
