@@ -203,7 +203,7 @@ def run_haf_pipe_complete(bam_file, args):
         logger.info(f"Running complete haf-pipe for {bam_file}")
         logger.debug(f"Command: {' '.join(cmd)}")
         
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         # Copy results to main output directory if using temp directories
         if args.temp_dir_per_bam and not args.keep_temp_files:
