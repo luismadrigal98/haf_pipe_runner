@@ -91,8 +91,13 @@ Examples:
                        help="Number of sites to consider in the imputation step.")
     parser.add_argument('--encoding', '-e', type=str, default='illumina', choices=['sanger', 'illumina'],
                        help='Base quality encoding in BAM files (default: illumina)')
-    parser.add_argument('--imputation_method', '--method', type=str, default='simpute',
-                       help='Imputation method for HAF-pipe (default: simpute). Common options: npute, none')
+    parser.add_argument('--imputation_method', '--impmethod', '-i', type=str, default='simpute', 
+                       choices=['simpute', 'npute', 'none'],
+                       help='Imputation method for HAF-pipe (default: simpute). Options: simpute, npute, none')
+    parser.add_argument('--mincalls', '-m', type=int, default=2,
+                       help='Keep only sites with at least this many ref|alt calls in SNP table (default: 2)')
+    parser.add_argument('--keephets', '-k', action='store_true',
+                       help='Keep heterozygous calls as ambiguous bases rather than treating them as missing')
     parser.add_argument('--no-chrom-wise', dest='chrom_wise', action='store_false', default=True,
                        help='Disable chromosome-wise mode (default: enabled).')
 
@@ -105,8 +110,8 @@ Examples:
                        help='SLURM partition(s) to use (default: sixhour,eeb,kelly,kucg)')
     parser.add_argument('--slurm_email', type=str, default='madrigalrocalj@ku.edu',
                        help='Email for SLURM notifications')
-    parser.add_argument('--slurm_time', type=str, default='12-00:00:00',
-                       help='SLURM time limit (default: 12-00:00:00)')
+    parser.add_argument('--slurm_time', type=str, default='06:00:00',
+                       help='SLURM time limit (default: 06:00:00)')
     parser.add_argument('--slurm_mem', type=str, default='15g',
                        help='SLURM memory per CPU (default: 15g)')
     parser.add_argument('--max_workers', type=int, default=None, 
