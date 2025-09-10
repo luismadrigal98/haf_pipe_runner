@@ -119,7 +119,9 @@ Examples:
     parser.add_argument('--continue_on_error', action='store_true',
                        help='Continue processing other files if one fails.')
     parser.add_argument('--keep_temp_files', action='store_true',
-                       help='Keep temporary files for debugging (default: cleanup)')
+                       help='Keep all intermediate files for debugging (default: cleanup intermediate, keep final results)')
+    parser.add_argument('--keep_all_files', action='store_true',
+                       help='Keep all files including intermediate processing files')
     parser.add_argument('--temp_dir_per_bam', type=bool, default=True,
                        help='Create separate temporary directory for each BAM file (default: enabled)')
     parser.add_argument('--run_postprocessing', action='store_true',

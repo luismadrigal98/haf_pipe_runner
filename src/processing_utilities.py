@@ -157,15 +157,11 @@ def run_haf_pipe_complete(bam_file, args):
         # Create BAM-specific output directory if temp_dir_per_bam is enabled
         if args.temp_dir_per_bam:
             bam_name = Path(bam_file).stem
-            # Create main BAM output directory
+            # Create single BAM output directory - no temp subdirectory for now
             bam_main_output_dir = Path(args.output_dir) / f"{bam_name}_output"
             bam_main_output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Create temp subdirectory within BAM output directory
-            bam_temp_dir = bam_main_output_dir / f"temp_{bam_name}"
-            bam_temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            working_output_dir = str(bam_temp_dir)
+            working_output_dir = str(bam_main_output_dir)
             logger.info(f"Using BAM-specific directory: {working_output_dir}")
         else:
             working_output_dir = args.output_dir
@@ -260,17 +256,12 @@ def run_haf_pipe_complete(bam_file, args):
             # Always restore the original working directory
             os.chdir(original_cwd)
         
-        # Copy results to BAM output directory if using temp directories
-        if args.temp_dir_per_bam:
-            # Always copy important files to preserve them
-            copied_files = copy_results_to_main_output(working_output_dir, str(bam_main_output_dir), bam_name)
-            
-            # Cleanup temp directory if not keeping files
-            if not args.keep_temp_files:
-                cleanup_temp_directory(working_output_dir)
-                logger.info(f"Cleaned up temp directory, preserved {len(copied_files)} important files")
-            else:
-                logger.info(f"Kept temp directory and copied {len(copied_files)} important files")
+        # Files are already in the right place, no need to copy
+        
+        # Clean up intermediate files if requested
+        if args.temp_dir_per_bam and not args.keep_temp_files and not getattr(args, 'keep_all_files', False):
+            removed, kept = cleanup_intermediate_files(working_output_dir, bam_name)
+            logger.info(f"Cleaned up {len(removed)} intermediate files, preserved {len(kept)} final results")
         
         logger.info(f"Successfully processed {bam_file}")
         return (bam_file, True, None)
@@ -381,7 +372,7 @@ python {sys.argv[0]} \\
     --haf_wrapper {args.haf_wrapper} \\
     --haf_maindir {args.haf_maindir} \\
     --reference_fasta {args.reference_fasta} \\
-    --output_dir {args.output_dir}/{bam_name}_output \\
+    --output_dir {args.output_dir} \\
     --window_size {args.window_size} \\
     --nsites {args.nsites} \\
     --encoding {args.encoding} \\
@@ -473,6 +464,52 @@ def cleanup_temp_directory(temp_dir):
         logger.debug(f"Cleaned up temporary directory: {temp_dir}")
     except Exception as e:
         logger.warning(f"Failed to cleanup temp directory {temp_dir}: {e}")
+
+def cleanup_intermediate_files(output_dir, bam_name):
+    """
+    Remove intermediate files while keeping final results.
+    
+    Removes:
+    - SNP tables (.txt)
+    - Imputation files (.simpute, .npute) 
+    - Numeric files (.numeric)
+    - Allele count files (.alleleCts)
+    - Log files (.log)
+    
+    Keeps:
+    - Final frequency files (.freqs)
+    - Final allele site files (.afSite)
+    """
+    output_path = Path(output_dir)
+    
+    # Files to remove (intermediate processing files)
+    cleanup_extensions = ['.txt', '.simpute', '.npute', '.numeric', '.alleleCts', '.log']
+    
+    # Files to keep (final results)
+    keep_extensions = ['.freqs', '.afSite']
+    
+    removed_files = []
+    kept_files = []
+    
+    for file_path in output_path.iterdir():
+        if file_path.is_file():
+            if any(file_path.suffix == ext for ext in cleanup_extensions):
+                try:
+                    file_path.unlink()
+                    removed_files.append(file_path.name)
+                    logger.debug(f"Removed intermediate file: {file_path.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove {file_path.name}: {e}")
+            elif any(file_path.suffix == ext for ext in keep_extensions):
+                kept_files.append(file_path.name)
+                logger.debug(f"Kept final result: {file_path.name}")
+    
+    logger.info(f"Cleanup complete for {bam_name}: removed {len(removed_files)} intermediate files, kept {len(kept_files)} final results")
+    
+    if not kept_files:
+        logger.warning(f"No final result files (.freqs, .afSite) found for {bam_name}")
+    
+    return removed_files, kept_files
 
 def validate_bam_file(bam_file):
     """Validate that a BAM file exists and has a proper index."""
