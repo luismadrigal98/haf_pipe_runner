@@ -227,7 +227,12 @@ def run_haf_pipe_complete(bam_file, args):
             # Change to the working directory so HAF-pipe can find files correctly
             os.chdir(abs_working_dir)
             
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            # Set locale environment variables to fix harp locale issues
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
             
             # Log what files were actually produced
             logger.info(f"HAF-pipe completed for {bam_file}")
@@ -361,6 +366,10 @@ def create_slurm_script(bam_file, args, slurm_dir):
 module load conda
 eval "$(conda shell.bash hook)"
 conda activate haf-pipe
+
+# Fix locale for harp
+export LC_ALL=C
+export LANG=C
 
 # Change to working directory
 cd {os.getcwd()}
