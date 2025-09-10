@@ -232,6 +232,13 @@ def run_haf_pipe_complete(bam_file, args):
             env['LC_ALL'] = 'C'
             env['LANG'] = 'C'
             
+            # Also set PATH to ensure harp and other tools are found
+            if 'PATH' in env:
+                env['PATH'] = env['PATH']
+            
+            logger.info(f"Running HAF-pipe with locale fix (LC_ALL=C, LANG=C)")
+            logger.debug(f"Environment variables: LC_ALL={env.get('LC_ALL')}, LANG={env.get('LANG')}")
+            
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
             
             # Log what files were actually produced
