@@ -116,6 +116,10 @@ Examples:
                        help='SLURM memory per CPU (default: 15g)')
     parser.add_argument('--max_workers', type=int, default=None, 
                        help='Maximum number of parallel workers (default: auto-detect).')
+    parser.add_argument('--harp_parallel_jobs', type=int, default=1,
+                       help='Number of parallel jobs for harp window processing within each BAM (default: 1)')
+    parser.add_argument('--use_parallel_harp', action='store_true',
+                       help='Use parallel processing for harp windows within each BAM file')
     parser.add_argument('--continue_on_error', action='store_true',
                        help='Continue processing other files if one fails.')
     parser.add_argument('--keep_temp_files', action='store_true',
