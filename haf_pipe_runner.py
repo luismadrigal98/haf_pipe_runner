@@ -120,6 +120,10 @@ Examples:
                        help='Number of parallel jobs for harp window processing within each BAM (default: 1)')
     parser.add_argument('--use_parallel_harp', action='store_true',
                        help='Use parallel processing for harp windows within each BAM file')
+    parser.add_argument('--rerun_failed_only', action='store_true',
+                       help='Only reprocess BAM files that failed or are incomplete (check output directory)')
+    parser.add_argument('--force_rerun', action='store_true',
+                       help='Force reprocessing of all BAM files, even if output exists')
     parser.add_argument('--continue_on_error', action='store_true',
                        help='Continue processing other files if one fails.')
     parser.add_argument('--keep_temp_files', action='store_true',
@@ -209,6 +213,30 @@ Examples:
         sys.exit(1)
 
     logger.info(f"Found {len(bam_files)} BAM files to process")
+
+    # Filter BAM files based on completion status if requested
+    if args.rerun_failed_only and not args.force_rerun:
+        logger.info("Checking completion status of BAM files...")
+        from src.processing_utilities import filter_incomplete_bams
+        
+        incomplete_bams, complete_bams, status_summary = filter_incomplete_bams(bam_files, args.output_dir)
+        
+        logger.info(f"\nCompletion Status Summary:")
+        logger.info(f"  Complete: {len(complete_bams)} BAM files")
+        logger.info(f"  Incomplete/Failed: {len(incomplete_bams)} BAM files")
+        
+        if incomplete_bams:
+            logger.info(f"\nWill reprocess {len(incomplete_bams)} incomplete BAM files:")
+            for bam in incomplete_bams:
+                logger.info(f"  - {Path(bam).name}")
+            bam_files = incomplete_bams
+        else:
+            logger.info("All BAM files are complete. Nothing to reprocess.")
+            sys.exit(0)
+    elif args.force_rerun:
+        logger.info("Force rerun enabled - will reprocess all BAM files")
+    else:
+        logger.info("Processing all BAM files (use --rerun_failed_only to skip completed files)")
 
     # Set up parallel processing parameters
     max_workers = args.max_workers or min(len(bam_files), cpu_count())

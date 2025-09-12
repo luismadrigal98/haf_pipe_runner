@@ -378,7 +378,7 @@ def create_slurm_script(bam_file, args, slurm_dir):
 #SBATCH --partition={args.slurm_partition}
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task={getattr(args, 'harp_parallel_jobs', 1)}
 #SBATCH --mem-per-cpu={args.slurm_mem}
 #SBATCH --time={args.slurm_time}
 #SBATCH --mail-user={args.slurm_email}
@@ -542,7 +542,107 @@ def cleanup_intermediate_files(output_dir, bam_name):
     
     return removed_files, kept_files
 
+def check_bam_completion_status(bam_file, output_dir):
+    """
+    Check if a BAM file has been successfully processed.
+    
+    Args:
+        bam_file: Path to BAM file
+        output_dir: Base output directory
+        
+    Returns:
+        tuple: (is_complete, status_message, expected_files)
+    """
+    bam_name = Path(bam_file).stem
+    bam_output_dir = Path(output_dir) / f"{bam_name}_output"
+    
+    if not bam_output_dir.exists():
+        return False, "Output directory not found", []
+    
+    # Check for expected output files
+    chr_name = extract_chromosome_from_path(str(bam_file))
+    if not chr_name:
+        return False, "Cannot determine chromosome", []
+    
+    expected_files = {
+        'freqs': bam_output_dir / f"{Path(bam_file).name}.{chr_name}.freqs",
+        'afSite': bam_output_dir / f"{Path(bam_file).name}.{chr_name}.afSite",
+        'log': bam_output_dir / f"HAFpipe-{bam_name}.log"
+    }
+    
+    existing_files = []
+    missing_files = []
+    
+    for file_type, file_path in expected_files.items():
+        if file_path.exists() and file_path.stat().st_size > 0:
+            existing_files.append(file_type)
+        else:
+            missing_files.append(file_type)
+    
+    if not missing_files:
+        return True, "All expected files present", existing_files
+    elif existing_files:
+        return False, f"Partially complete (missing: {', '.join(missing_files)})", existing_files
+    else:
+        return False, "No output files found", []
+
+def filter_incomplete_bams(bam_files, output_dir):
+    """
+    Filter BAM files to only those that need (re)processing.
+    
+    Args:
+        bam_files: List of BAM file paths
+        output_dir: Base output directory
+        
+    Returns:
+        tuple: (incomplete_bams, complete_bams, status_summary)
+    """
+    incomplete_bams = []
+    complete_bams = []
+    status_summary = []
+    
+    for bam_file in bam_files:
+        is_complete, status, files = check_bam_completion_status(bam_file, output_dir)
+        
+        status_summary.append({
+            'bam': Path(bam_file).name,
+            'complete': is_complete,
+            'status': status,
+            'files': files
+        })
+        
+        if is_complete:
+            complete_bams.append(bam_file)
+            logger.info(f"✓ {Path(bam_file).name}: Complete")
+        else:
+            incomplete_bams.append(bam_file)
+            logger.info(f"⚠ {Path(bam_file).name}: {status}")
+    
+    return incomplete_bams, complete_bams, status_summary
+
 def validate_bam_file(bam_file):
+    """Validate that a BAM file exists and has a proper index."""
+    bam_path = Path(bam_file)
+    if not bam_path.exists():
+        return False, f"BAM file does not exist: {bam_file}"
+    
+    # Check for BAM index (.bai) - HAF-pipe expects .bam.bai format
+    bai_path = Path(str(bam_path) + '.bai')
+    alt_bai_path = bam_path.with_suffix('.bai')  # Some tools create .bai without .bam
+    
+    if not bai_path.exists():
+        if alt_bai_path.exists():
+            # Create symlink from .bai to .bam.bai
+            try:
+                bai_path.symlink_to(alt_bai_path)
+                logger.info(f"Created BAM index symlink: {bai_path}")
+            except Exception as e:
+                logger.warning(f"Could not create BAM index symlink: {e}")
+                return False, f"BAM index file missing and could not create symlink: {bam_file}.bai"
+        else:
+            return False, f"BAM index file missing: {bam_file}.bai (required by HAF-pipe)"
+    
+    return True, "BAM file and index validated"
     """Validate that a BAM file exists and has a proper index."""
     bam_path = Path(bam_file)
     if not bam_path.exists():
