@@ -214,12 +214,17 @@ Examples:
 
     logger.info(f"Found {len(bam_files)} BAM files to process")
 
+    if args.chrom_wise:
+        logger.info("Chromosome-wise processing enabled")
+    else:
+        logger.info("Chromosome-wise processing disabled - will process entire BAM files")
+
     # Filter BAM files based on completion status if requested
     if args.rerun_failed_only and not args.force_rerun:
         logger.info("Checking completion status of BAM files...")
         from src.processing_utilities import filter_incomplete_bams
         
-        incomplete_bams, complete_bams, status_summary = filter_incomplete_bams(bam_files, args.output_dir)
+        incomplete_bams, complete_bams, status_summary = filter_incomplete_bams(bam_files, args.output_dir, args)
         
         logger.info(f"\nCompletion Status Summary:")
         logger.info(f"  Complete: {len(complete_bams)} BAM files")

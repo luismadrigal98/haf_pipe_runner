@@ -262,16 +262,27 @@ def run_haf_pipe_complete(bam_file, args):
             logger.debug(f"Output files produced: {[f.name for f in output_files if f.is_file()]}")
             
             # Check for expected output files based on HAF-pipe naming convention
-            if args.chromosome:
+            if args.chrom_wise and args.chromosome:
                 expected_freqs = Path(abs_working_dir) / f"{Path(abs_bam_file).name}.{args.chromosome}.freqs"
-            else:
+                chr_name = args.chromosome
+            elif args.chrom_wise:
                 chr_name = extract_chromosome_from_path(str(bam_file))
-                expected_freqs = Path(abs_working_dir) / f"{Path(abs_bam_file).name}.{chr_name}.freqs"
+                if chr_name:
+                    expected_freqs = Path(abs_working_dir) / f"{Path(abs_bam_file).name}.{chr_name}.freqs"
+                else:
+                    # No chromosome specified or detected - look for any .freqs files
+                    expected_freqs = None
+                    logger.info(f"No chromosome specified/detected for {bam_file} - will search for any .freqs files")
+            else:
+                # Non-chromosome-wise mode - look for any .freqs files
+                expected_freqs = None
+                chr_name = None
             
-            if expected_freqs.exists():
+            if expected_freqs and expected_freqs.exists():
                 logger.info(f"Found expected freqs file: {expected_freqs}")
             else:
-                logger.warning(f"Expected freqs file not found: {expected_freqs}")
+                if expected_freqs:
+                    logger.warning(f"Expected freqs file not found: {expected_freqs}")
                 # Look for any .freqs files
                 freqs_files = list(Path(abs_working_dir).glob('*.freqs'))
                 if freqs_files:
@@ -542,13 +553,14 @@ def cleanup_intermediate_files(output_dir, bam_name):
     
     return removed_files, kept_files
 
-def check_bam_completion_status(bam_file, output_dir):
+def check_bam_completion_status(bam_file, output_dir, args=None):
     """
     Check if a BAM file has been successfully processed.
     
     Args:
         bam_file: Path to BAM file
         output_dir: Base output directory
+        args: Command line arguments (needed for chrom_wise mode check)
         
     Returns:
         tuple: (is_complete, status_message, expected_files)
@@ -558,26 +570,46 @@ def check_bam_completion_status(bam_file, output_dir):
     
     if not bam_output_dir.exists():
         return False, "Output directory not found", []
+
+    # Check for expected output files - only extract chromosome if in chromosome-wise mode
+    if args and args.chrom_wise:
+        chr_name = extract_chromosome_from_path(str(bam_file))
+    else:
+        chr_name = None
     
-    # Check for expected output files
-    chr_name = extract_chromosome_from_path(str(bam_file))
-    if not chr_name:
-        return False, "Cannot determine chromosome", []
-    
-    expected_files = {
-        'freqs': bam_output_dir / f"{Path(bam_file).name}.{chr_name}.freqs",
-        'afSite': bam_output_dir / f"{Path(bam_file).name}.{chr_name}.afSite",
-        'log': bam_output_dir / f"HAFpipe-{bam_name}.log"
-    }
+    if chr_name:
+        # Chromosome-specific files
+        expected_files = {
+            'freqs': bam_output_dir / f"{Path(bam_file).name}.{chr_name}.freqs",
+            'afSite': bam_output_dir / f"{Path(bam_file).name}.{chr_name}.afSite",
+            'log': bam_output_dir / f"HAFpipe-{bam_name}.log"
+        }
+    else:
+        # No chromosome detected - check for any .freqs/.afSite files
+        freqs_files = list(bam_output_dir.glob('*.freqs'))
+        afsite_files = list(bam_output_dir.glob('*.afSite'))
+        log_files = list(bam_output_dir.glob('HAFpipe-*.log'))
+        
+        if freqs_files or afsite_files:
+            # Use the first found files as representatives
+            expected_files = {
+                'freqs': freqs_files[0] if freqs_files else None,
+                'afSite': afsite_files[0] if afsite_files else None,
+                'log': log_files[0] if log_files else bam_output_dir / f"HAFpipe-{bam_name}.log"
+            }
+        else:
+            # No output files found and no chromosome detected
+            return False, "No chromosome detected and no output files found", []
     
     existing_files = []
     missing_files = []
     
     for file_type, file_path in expected_files.items():
-        if file_path.exists() and file_path.stat().st_size > 0:
+        if file_path and file_path.exists() and file_path.stat().st_size > 0:
             existing_files.append(file_type)
-        else:
+        elif file_path:  # file_path is not None but doesn't exist or is empty
             missing_files.append(file_type)
+        # If file_path is None, we don't count it as missing (no chromosome detected case)
     
     if not missing_files:
         return True, "All expected files present", existing_files
@@ -586,13 +618,14 @@ def check_bam_completion_status(bam_file, output_dir):
     else:
         return False, "No output files found", []
 
-def filter_incomplete_bams(bam_files, output_dir):
+def filter_incomplete_bams(bam_files, output_dir, args=None):
     """
     Filter BAM files to only those that need (re)processing.
     
     Args:
         bam_files: List of BAM file paths
         output_dir: Base output directory
+        args: Command line arguments (needed for chrom_wise mode check)
         
     Returns:
         tuple: (incomplete_bams, complete_bams, status_summary)
@@ -602,7 +635,7 @@ def filter_incomplete_bams(bam_files, output_dir):
     status_summary = []
     
     for bam_file in bam_files:
-        is_complete, status, files = check_bam_completion_status(bam_file, output_dir)
+        is_complete, status, files = check_bam_completion_status(bam_file, output_dir, args)
         
         status_summary.append({
             'bam': Path(bam_file).name,
