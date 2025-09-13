@@ -420,10 +420,10 @@ python {sys.argv[0]} \\
     --encoding {args.encoding} \\
     --imputation_method {args.imputation_method} \\
     --mincalls {args.mincalls} \\
-    {"--keephets" if args.keephets else ""} \\
     --logfile HAFpipe-{bam_name}.log \\
     {chromosome_arg} \\
-    {"--keep_temp_files" if args.keep_temp_files else ""} \\
+    {"--keephets " if args.keephets else ""}\\
+    {"--keep_temp_files " if args.keep_temp_files else ""}\\
     {"--no-chrom-wise" if not args.chrom_wise else ""}
 
 echo "Job completed for {bam_file}"
