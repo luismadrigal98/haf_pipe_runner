@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Import utility functions from processing_utilities.py
 from src.processing_utilities import *
-from src.postprocessing_utilities import run_full_postprocessing, generate_summary_report
 
 def main():
     # Parse command-line arguments
@@ -45,9 +44,6 @@ Examples:
   
   # Auto-discover directories with pattern and SLURM processing
   python3 haf_pipe_runner.py --input_vcf variants.vcf --base_directory /path/to/chromosomes --dir_pattern "Chr_" --haf_wrapper wrapper.sh --reference_fasta ref.fa --slurm
-  
-  # With post-processing to consolidate results
-  python3 haf_pipe_runner.py --input_vcf variants.vcf --base_directory /path/to/chromosomes --haf_wrapper wrapper.sh --reference_fasta ref.fa --slurm --run_postprocessing
         """
     )
 
@@ -116,10 +112,6 @@ Examples:
                        help='SLURM memory per CPU (default: 15g)')
     parser.add_argument('--max_workers', type=int, default=None, 
                        help='Maximum number of parallel workers (default: auto-detect).')
-    parser.add_argument('--harp_parallel_jobs', type=int, default=1,
-                       help='Number of parallel jobs for harp window processing within each BAM (default: 1)')
-    parser.add_argument('--use_parallel_harp', action='store_true',
-                       help='Use parallel processing for harp windows within each BAM file')
     parser.add_argument('--rerun_failed_only', action='store_true',
                        help='Only reprocess BAM files that failed or are incomplete (check output directory)')
     parser.add_argument('--force_rerun', action='store_true',
@@ -132,10 +124,6 @@ Examples:
                        help='Keep all files including intermediate processing files')
     parser.add_argument('--temp_dir_per_bam', type=bool, default=True,
                        help='Create separate temporary directory for each BAM file (default: enabled)')
-    parser.add_argument('--run_postprocessing', action='store_true',
-                       help='Run post-processing to consolidate results into unified outputs')
-    parser.add_argument('--consolidated_dir', type=str, default='consolidated_results',
-                       help='Directory name for consolidated post-processing results (default: consolidated_results)')
 
     # Print help if no arguments are provided
     if len(sys.argv) == 1:
@@ -298,18 +286,6 @@ Examples:
         logger.error(f"Failed to process: {len(failed)} BAM files")
         for bam_file, _, error in failed:
             logger.error(f"  - {bam_file}: {error}")
-    
-    # Run post-processing if requested
-    if args.run_postprocessing and successful:
-        logger.info("\nStarting post-processing to consolidate results...")
-        try:
-            run_full_postprocessing(args.output_dir, args.consolidated_dir)
-            generate_summary_report(args.output_dir, args.consolidated_dir)
-            logger.info("Post-processing completed successfully!")
-        except Exception as e:
-            logger.error(f"Post-processing failed: {e}")
-    elif args.run_postprocessing and not successful:
-        logger.warning("Skipping post-processing due to no successful results")
     
     if failed and not args.continue_on_error:
         sys.exit(1)

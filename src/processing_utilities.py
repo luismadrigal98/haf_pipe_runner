@@ -197,21 +197,6 @@ def run_haf_pipe_complete(bam_file, args):
             '--logfile', abs_logfile
         ]
         
-        # Add parallel harp processing if enabled
-        if getattr(args, 'use_parallel_harp', False) and getattr(args, 'harp_parallel_jobs', 1) > 1:
-            # Check if we have the parallel script
-            parallel_script = Path(__file__).parent.parent / "infer_haplotype_freqs_parallel.sh"
-            if parallel_script.exists():
-                # Set environment variable to use parallel processing
-                parallel_script_abs = os.path.abspath(parallel_script)
-                logger.info(f"Using parallel harp processing with {args.harp_parallel_jobs} jobs")
-                logger.info(f"Parallel script: {parallel_script_abs}")
-                # We'll modify the HAF-pipe wrapper to use our parallel script if this env var is set
-                env_vars_msg = f"HARP_PARALLEL_SCRIPT={parallel_script_abs}, HARP_PARALLEL_JOBS={args.harp_parallel_jobs}"
-                logger.debug(f"Environment variables for parallel processing: {env_vars_msg}")
-            else:
-                logger.warning(f"Parallel harp script not found at {parallel_script}, using sequential processing")
-        
         # Add keephets flag if specified
         if args.keephets:
             cmd.extend(['--keephets'])
@@ -389,7 +374,7 @@ def create_slurm_script(bam_file, args, slurm_dir):
 #SBATCH --partition={args.slurm_partition}
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task={getattr(args, 'harp_parallel_jobs', 1)}
+#SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu={args.slurm_mem}
 #SBATCH --time={args.slurm_time}
 #SBATCH --mail-user={args.slurm_email}
